@@ -2,6 +2,7 @@ package zgrab2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -149,7 +150,7 @@ func EncodeGrab(raw *Grab, includeDebug bool) ([]byte, error) {
 }
 
 // grabTarget calls handler for each action
-func grabTarget(input ScanTarget, m *Monitor) []byte {
+func grabTarget(input ScanTarget, m *Monitor) ([]byte, error) {
 	moduleResult := make(map[string]ScanResponse)
 
 	for _, scannerName := range orderedScanners {
@@ -167,7 +168,9 @@ func grabTarget(input ScanTarget, m *Monitor) []byte {
 		}(scannerName)
 		name, res := RunScanner(*scanner, m, input)
 		moduleResult[name] = res
+
 		if res.Error != nil && !config.Multiple.ContinueOnError {
+			//return nil, errors.New("scan failed")
 			break
 		}
 		if res.Status == SCAN_SUCCESS && config.Multiple.BreakOnSuccess {
@@ -175,13 +178,25 @@ func grabTarget(input ScanTarget, m *Monitor) []byte {
 		}
 	}
 
-	raw := BuildGrabFromInputResponse(&input, moduleResult)
-	result, err := EncodeGrab(raw, includeDebugOutput())
-	if err != nil {
-		log.Fatalf("unable to marshal data: %s", err)
+	// Remove all data for those which failed
+	for k, v := range moduleResult {
+		if v.Status != SCAN_SUCCESS {
+			delete(moduleResult, k)
+		}
 	}
 
-	return result
+	if len(moduleResult) >= 1 {
+		raw := BuildGrabFromInputResponse(&input, moduleResult)
+		result, err := EncodeGrab(raw, includeDebugOutput())
+		if err != nil {
+			log.Fatalf("unable to marshal data: %s", err)
+			return nil, errors.New("scan failed")
+		}
+
+		return result, nil
+	}
+
+	return nil, nil
 }
 
 // Process sets up an output encoder, input reader, and starts grab workers.
@@ -212,8 +227,10 @@ func Process(mon *Monitor) {
 			}
 			for obj := range processQueue {
 				for run := uint(0); run < uint(config.ConnectionsPerHost); run++ {
-					result := grabTarget(obj, mon)
-					outputQueue <- result
+					result, err := grabTarget(obj, mon)
+					if err == nil {
+						outputQueue <- result
+					}
 				}
 			}
 			workerDone.Done()

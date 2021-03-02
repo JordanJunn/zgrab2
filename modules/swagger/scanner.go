@@ -44,7 +44,7 @@ type Flags struct {
 	UserAgent    string `long:"user-agent" default:"Mozilla/5.0 zgrab/0.x" description:"Set a custom user agent"`
 	RetryHTTPS   bool   `long:"retry-https" description:"If the initial request fails, reconnect and try with HTTPS."`
 	MaxRedirects int    `long:"max-redirects" default:"2" description:"Max number of redirects to follow"`
-	Fingerprint  string `long:"fingerprint" default:"\"swagger\":" description:"The identifier used to match valid Swagger files"`
+	//Fingerprint  string `long:"fingerprint" default:"(:?\"swagger\"|swagger\:)" description:"The identifier used to match valid Swagger files"`
 
 	// FollowLocalhostRedirects overrides the default behavior to return
 	// ErrRedirLocalhost whenever a redirect points to localhost.
@@ -139,7 +139,7 @@ func (s *Scanner) Protocol() string {
 func (scanner *Scanner) Init(flags zgrab2.ScanFlags) error {
 	fl, _ := flags.(*Flags)
 	scanner.config = fl
-	scanner.fingerprint = regexp.MustCompile(scanner.config.Fingerprint)
+	scanner.fingerprint = regexp.MustCompile(`(:?\"swagger\"|swagger\:)`)
 
 	if fl.ComputeDecodedBodyHashAlgorithm == "sha1" {
 		scanner.decodedHashFn = func(body []byte) string {
@@ -495,10 +495,9 @@ func (scanner *Scanner) Scan(t zgrab2.ScanTarget) (zgrab2.ScanStatus, interface{
 			if retryError != nil {
 				return retryError.Unpack(&retry.results)
 			} else if retry.results.MatchedSwagger {
-				log.Info("was success")
 				return zgrab2.SCAN_SUCCESS, &retry.results, nil
 			} else {
-				return err.Unpack(&retry.results)
+				return zgrab2.SCAN_MATCH_ERROR, &retry.results, errors.New("NOT_SWAGGER")
 			}
 		}
 
@@ -508,7 +507,7 @@ func (scanner *Scanner) Scan(t zgrab2.ScanTarget) (zgrab2.ScanStatus, interface{
 	if scan.results.MatchedSwagger {
 		return zgrab2.SCAN_SUCCESS, &scan.results, nil
 	} else {
-		return zgrab2.SCAN_APPLICATION_ERROR, &Results{}, nil
+		return zgrab2.SCAN_MATCH_ERROR, &Results{}, errors.New("NOT_SWAGGER")
 	}
 
 }
